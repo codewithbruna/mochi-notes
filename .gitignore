@@ -1,0 +1,11 @@
+node_modules/
+dist/
+dist-electron/
+release/
+.mochi-data/
+.npm-cache/
+.electron-cache/
+.appdata/
+.local-appdata/
+LocalLow/
+*.tsbuildinfo
