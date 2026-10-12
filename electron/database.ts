@@ -25,6 +25,7 @@ import type {
 
 const defaultSettings: AppSettings = {
   theme: "light",
+  palette: "aurora",
   accent: "pink",
   customAccent: undefined,
   sidebarCollapsed: false,
@@ -38,6 +39,7 @@ const starterCategories = [
 ];
 
 const now = () => new Date().toISOString();
+const isHexColor = (value: unknown): value is string => typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value);
 
 interface DbNote {
   id: string;
@@ -319,6 +321,12 @@ export class MochiDatabase {
   updateSettings(settings: Partial<AppSettings>): AppSettings {
     const current = this.getSettings();
     const next: AppSettings = { ...current, ...settings };
+    if (settings.customAccent !== undefined) next.customAccent = isHexColor(settings.customAccent) ? settings.customAccent : undefined;
+    if (settings.customPalette) {
+      next.customPalette = Object.fromEntries(
+        Object.entries(settings.customPalette).filter(([, value]) => isHexColor(value))
+      );
+    }
     this.db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('app', ?)").run(JSON.stringify(next));
     return next;
   }

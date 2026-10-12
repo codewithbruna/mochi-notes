@@ -44,12 +44,16 @@
     "directories": {
       "output": "release"
     },
+    "extraResources": [
+      "resources/app-icon.ico"
+    ],
     "mac": {
       "category": "public.app-category.productivity",
       "target": ["dmg"]
     },
     "win": {
-      "target": ["nsis"]
+      "target": ["nsis"],
+      "icon": "resources/app-icon.ico"
     }
   }
 }

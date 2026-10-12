@@ -16,6 +16,9 @@ import type {
 let mainWindow: BrowserWindow | null = null;
 let database: MochiDatabase;
 const useDevServer = process.argv.includes("--dev");
+const appIcon = app.isPackaged
+  ? path.join(process.resourcesPath, "app-icon.ico")
+  : path.join(process.cwd(), "resources", "app-icon.ico");
 
 const createWindow = async () => {
   mainWindow = new BrowserWindow({
@@ -24,7 +27,8 @@ const createWindow = async () => {
     minWidth: 900,
     minHeight: 620,
     title: "Mochi Notes",
-    backgroundColor: "#fff8fb",
+    backgroundColor: "#0b252d",
+    icon: appIcon,
     titleBarStyle: "hiddenInset",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),

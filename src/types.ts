@@ -1,6 +1,15 @@
-export type ThemeMode = "light" | "dark";
+export type ThemeMode = "light" | "dark" | "system";
 export type AccentColor = "pink" | "lilac" | "peach" | "mint" | "aurora";
-export type ViewMode = "notes" | "quick" | "tasks" | "favorites" | "category" | "insights" | "spreadsheets";
+export type PaletteName = "aurora" | "lavender" | "mint" | "autumn" | "minimal";
+
+export interface ThemeCustomization {
+  appBackground?: string;
+  headerBackground?: string;
+  sidebarBackground?: string;
+  surfacePrimary?: string;
+  accent?: string;
+}
+export type ViewMode = "notes" | "quick" | "tasks" | "favorites" | "category" | "insights" | "spreadsheets" | "settings";
 
 export interface Category {
   id: string;
@@ -41,8 +50,10 @@ export interface Note {
 
 export interface AppSettings {
   theme: ThemeMode;
+  palette: PaletteName;
   accent: AccentColor;
   customAccent?: string;
+  customPalette?: ThemeCustomization;
   sidebarCollapsed: boolean;
   showMascot: boolean;
 }
