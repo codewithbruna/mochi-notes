@@ -1,95 +1,86 @@
-# Mochi Notes
+# Mochi Notes ✦
 
 <p align="center">
-  <img src="public/app-icon-256.png" width="112" alt="Ícone do Mochi Notes" />
+  <img src="public/mochi-readme-hero.png" alt="Mochi Notes: caderno lilás, chá de morango e flores em uma mesa cor-de-rosa" width="100%" />
 </p>
 
 <p align="center">
-  <strong>Um espaço calmo, completo e pessoal para pensar, registrar e realizar.</strong><br />
-  Notas, listas, planilhas e arquivos — organizados do seu jeito e guardados no seu computador.
+  <img src="public/app-icon-256.png" width="72" alt="Ícone do Mochi Notes" />
+</p>
+
+<h3 align="center">Seu pequeno universo de ideias, feito para florescer. ♡</h3>
+
+<p align="center">
+  Um cantinho bonito e inteligente para guardar planos, listas, notas, arquivos e todas aquelas ideias que merecem ser lembradas.
 </p>
 
 <p align="center">
-  <a href="#recursos">Recursos</a> ·
+  <a href="#o-que-tem-por-aqui">Recursos</a> ·
   <a href="#instalação">Instalação</a> ·
-  <a href="#privacidade-e-dados-locais">Privacidade</a> ·
-  <a href="#desenvolvimento">Desenvolvimento</a>
+  <a href="#sua-conta-e-seus-dados">Sua conta</a> ·
+  <a href="#para-desenvolver">Desenvolvimento</a>
 </p>
 
 ---
 
-## Por que Mochi Notes?
+## Para dias cheios de ideias ✿
 
-Ideias importantes merecem um lugar que não interrompa o seu raciocínio. O Mochi Notes foi pensado como uma central de trabalho pessoal: simples para anotar algo rápido, estruturada para projetos contínuos e inteiramente sua.
+O Mochi Notes transforma o seu espaço digital em algo gostoso de usar. Ele foi feito para a pessoa que anota uma inspiração antes de dormir, planeja a semana com carinho, guarda referências de projetos e quer encontrar tudo sem perder o fio da meada.
 
-- **Foco no conteúdo** — uma interface desktop acolhedora, com modos de visualização para biblioteca, painel dividido e concentração.
-- **Organização flexível** — crie pastas aninhadas, categorias e etiquetas para encontrar qualquer nota pela sua própria lógica.
-- **Do rascunho à ação** — transforme notas em tarefas e mantenha checklists junto do contexto em que elas surgiram.
-- **Tudo reunido** — use modelos para reuniões, projetos, estudos, diário e planejamento semanal; armazene anexos e gerencie planilhas no mesmo espaço.
-- **Histórico e segurança** — acompanhe revisões, favorite, arquive ou restaure notas quando precisar.
+> **Menos bagunça, mais espaço para você.**
 
-## Recursos
+### O que tem por aqui?
 
-| Área | O que você encontra |
-| --- | --- |
-| Notas | Criação rápida, pesquisa, favoritos, lixeira, arquivamento e histórico de versões. |
-| Organização | Pastas com hierarquia, categorias, tags e filtros para navegar sem fricção. |
-| Produtividade | Checklists, tarefas e modelos prontos para diferentes contextos de trabalho. |
-| Arquivos | Anexos e importação de planilhas `.xlsx` e `.csv`. |
-| Experiência | Temas, preferências de interface e diferentes modos de visualização. |
+| ✦ | Seu espaço Mochi |
+| :-- | :-- |
+| **Notas que acompanham você** | Crie notas rápidas, favoritas, arquive, recupere da lixeira e reveja versões anteriores. |
+| **Tudo no seu lugar** | Organize com pastas aninhadas, categorias, tags e filtros feitos para a sua lógica. |
+| **Planos viram realidade** | Faça checklists, transforme uma nota em tarefa e use modelos para reuniões, estudos, diário, projetos e semanas especiais. |
+| **Seu acervo inteiro** | Adicione anexos, importe planilhas `.xlsx` e `.csv` e mantenha o contexto pertinho da nota. |
+| **Do seu jeitinho** | Escolha temas, preferências e o modo de visualização que combina com o seu momento: biblioteca, dividido ou foco. |
 
 ## Instalação
 
-### Windows
+### Windows ♡
 
-Execute o instalador mais recente disponível na pasta `release/` do projeto. Ele é criado com o nome `Mochi Notes Setup <versão>.exe`.
+Abra a pasta `release/` e execute `Mochi Notes Setup <versão>.exe`. Depois é só procurar por **Mochi Notes** no Menu Iniciar e começar a preencher seu cantinho.
 
-Depois da instalação, abra **Mochi Notes** pelo Menu Iniciar. O instalador é gerado a partir desta versão do código.
+### Pelo código-fonte
 
-### Executar a partir do código-fonte
-
-Pré-requisito: [Node.js](https://nodejs.org/) 20 ou superior.
+Você vai precisar do [Node.js](https://nodejs.org/) 20 ou superior.
 
 ```powershell
 npm install
 npm start
 ```
 
-## Privacidade e dados locais
+## Sua conta e seus dados
 
-O Mochi Notes funciona sem depender de um servidor para guardar suas informações. O banco SQLite, os anexos e as preferências ficam em `.mochi-data` dentro da pasta do projeto durante o uso em desenvolvimento.
+O Mochi Notes está sendo preparado para manter seu conteúdo seguro e acessível mesmo quando você troca de computador. A sincronização de conta permitirá abrir o mesmo universo de notas em diferentes máquinas, mantendo cada espaço separado e protegido.
 
-As credenciais são armazenadas como hash criptográfico, nunca como senha em texto simples. Como os dados são locais, manter cópias de segurança da pasta de dados é a melhor forma de preservar seu acervo.
+Durante o desenvolvimento, os dados locais ficam em `.mochi-data`. As senhas nunca são salvas como texto simples.
 
-## Desenvolvimento
-
-Para desenvolver com atualização automática da interface:
+## Para desenvolver
 
 ```powershell
+# Interface com atualização automática
 npm run dev
-```
 
-Antes de enviar uma alteração, verifique o projeto:
-
-```powershell
+# Verificar qualidade e gerar a versão de produção
 npm run typecheck
 npm run build
-```
 
-Para gerar uma nova versão instalável do aplicativo:
-
-```powershell
+# Criar um novo instalador Windows em release/
 npm run dist
 ```
 
-O instalador é criado em `release/`, junto com a versão desempacotada para testes locais.
+## Feito com carinho usando
 
-## Tecnologias
-
-- Electron + React + TypeScript
-- Vite
-- SQLite
+`Electron` · `React` · `TypeScript` · `Vite` · `SQLite`
 
 ---
 
-<p align="center">Feito para que suas ideias tenham um lugar só delas.</p>
+<p align="center">
+  <strong>Um lugar bonito para ideias bonitas. ✧</strong><br />
+  Feito para você criar, sonhar e lembrar.
+</p>
