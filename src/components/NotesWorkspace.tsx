@@ -1,6 +1,6 @@
 import { Archive, ChevronDown, Clock3, Columns2, Folder, FolderPlus, Grid2X2, Heart, Library, List, NotebookPen, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Search, Tag as TagIcon, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import type { AppSettings, Category, Folder, Note, NotesViewMode, Tag } from "../types";
+import type { AppSettings, Category, Folder as NoteFolder, Note, NotesViewMode, Tag } from "../types";
 import { formatDate, getCategory, plainPreview } from "../utils";
 import { NoteCard } from "./NoteCard";
 import { NoteEditor } from "./NoteEditor";
@@ -12,7 +12,7 @@ export type NoteTemplate = "project" | "meeting" | "weekly" | "classNotes" | "jo
 interface Props {
   notes: Note[];
   categories: Category[];
-  folders: Folder[];
+  folders: NoteFolder[];
   tags: Tag[];
   settings: AppSettings;
   selectedNote: Note | null;
@@ -32,8 +32,8 @@ interface Props {
   onOpenHistory: (note: Note) => void;
   onTransformToTask: (note: Note) => Promise<void>;
   onCreateFolder: (name: string, parentId: string | null) => Promise<void>;
-  onRenameFolder: (folder: Folder, name: string) => Promise<void>;
-  onDeleteFolder: (folder: Folder) => Promise<void>;
+  onRenameFolder: (folder: NoteFolder, name: string) => Promise<void>;
+  onDeleteFolder: (folder: NoteFolder) => Promise<void>;
   onArchive: (note: Note) => Promise<void>;
 }
 
@@ -107,24 +107,24 @@ export function NotesWorkspace({ notes, categories, folders, tags, settings, sel
   </section>;
 }
 
-function NotesNavigator({ notes, categories, folders, selectedId, active, onChange, onSelect, onCreate, onOpenTrash, onOpenArchived, onCreateFolder, onRenameFolder, onDeleteFolder }: { notes: Note[]; categories: Category[]; folders: Folder[]; selectedId: string | null; active: NavigatorFilter; onChange: (value: NavigatorFilter) => void; onSelect: (id: string) => void; onCreate: () => void; onOpenTrash: () => void; onOpenArchived: () => void; onCreateFolder: (name: string, parentId: string | null) => Promise<void>; onRenameFolder: (folder: Folder, name: string) => Promise<void>; onDeleteFolder: (folder: Folder) => Promise<void> }) {
+function NotesNavigator({ notes, categories, folders, selectedId, active, onChange, onSelect, onCreate, onOpenTrash, onOpenArchived, onCreateFolder, onRenameFolder, onDeleteFolder }: { notes: Note[]; categories: Category[]; folders: NoteFolder[]; selectedId: string | null; active: NavigatorFilter; onChange: (value: NavigatorFilter) => void; onSelect: (id: string) => void; onCreate: () => void; onOpenTrash: () => void; onOpenArchived: () => void; onCreateFolder: (name: string, parentId: string | null) => Promise<void>; onRenameFolder: (folder: NoteFolder, name: string) => Promise<void>; onDeleteFolder: (folder: NoteFolder) => Promise<void> }) {
   const [newFolderName, setNewFolderName] = useState("");
   const [parentId, setParentId] = useState("");
   const [editingFolder, setEditingFolder] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const createFolder = async () => { const name = newFolderName.trim(); if (!name) return; await onCreateFolder(name, parentId || null); setNewFolderName(""); setParentId(""); };
-  const folderName = (folder: Folder) => { const parent = folders.find((item) => item.id === folder.parentId); return parent ? `${parent.name} / ${folder.name}` : folder.name; };
+  const folderName = (folder: NoteFolder) => { const parent = folders.find((item) => item.id === folder.parentId); return parent ? `${parent.name} / ${folder.name}` : folder.name; };
   return <><header className="notes-navigator-header"><div><NotebookPen size={17} /><strong>Minhas notas</strong></div><button onClick={onCreate} title="Nova nota" aria-label="Nova nota"><Plus size={17} /></button></header><nav className="notes-navigator-filters"><button className={active === "all" ? "active" : ""} onClick={() => onChange("all")}><NotebookPen size={16} /> Todas as notas</button><button className={active === "favorites" ? "active" : ""} onClick={() => onChange("favorites")}><Heart size={16} /> Fixadas</button><button className={active === "recent" ? "active" : ""} onClick={() => onChange("recent")}><Clock3 size={16} /> Recentes</button></nav><div className="notes-navigator-section"><div className="notes-folder-heading"><span>PASTAS</span><FolderPlus size={14} /></div>{folders.map((folder) => <div className={`notes-folder-row ${folder.parentId ? "nested" : ""}`} key={folder.id}>{editingFolder === folder.id ? <form onSubmit={(event) => { event.preventDefault(); const name = editingName.trim(); if (name) void onRenameFolder(folder, name).then(() => setEditingFolder(null)); }}><input autoFocus value={editingName} onChange={(event) => setEditingName(event.target.value)} onBlur={() => setEditingFolder(null)} /></form> : <button className={active === `folder:${folder.id}` ? "active" : ""} onClick={() => onChange(`folder:${folder.id}`)}><i />{folderName(folder)}</button>}<div className="notes-folder-actions"><button onClick={() => { setEditingFolder(folder.id); setEditingName(folder.name); }} title="Renomear pasta" aria-label="Renomear pasta"><Pencil size={12} /></button><button onClick={() => { if (confirm(`Excluir a pasta “${folder.name}”? As notas serão preservadas.`)) void onDeleteFolder(folder); }} title="Excluir pasta" aria-label="Excluir pasta"><Trash2 size={12} /></button></div></div>)}<form className="new-folder-form" onSubmit={(event) => { event.preventDefault(); void createFolder(); }}><input value={newFolderName} onChange={(event) => setNewFolderName(event.target.value)} placeholder="Nova pasta" /><select value={parentId} onChange={(event) => setParentId(event.target.value)} aria-label="Pasta pai"><option value="">Raiz</option>{folders.map((folder) => <option key={folder.id} value={folder.id}>{folderName(folder)}</option>)}</select><button aria-label="Criar pasta" title="Criar pasta"><Plus size={14} /></button></form></div><div className="notes-navigator-list">{notes.map((note) => <button className={note.id === selectedId ? "active" : ""} key={note.id} onClick={() => onSelect(note.id)}><span>{note.title || "Sem título"}</span><small>{folders.find((folder) => folder.id === note.folderId)?.name ?? getCategory(categories, note.categoryId)?.name ?? "Sem pasta"}</small></button>)}</div><div className="notes-navigator-bottom"><button onClick={onOpenArchived}><Archive size={16} /> Arquivadas</button><button onClick={onOpenTrash}><Trash2 size={16} /> Lixeira</button></div></>;
 }
 
-function PremiumNotesNavigator({ notes, folders, tags, selectedId, active, query, sort, creatingNote, onChange, onQueryChange, onSortChange, onSelect, onCreate, onOpenTemplates, onOpenTrash, onOpenArchived, onCreateFolder, onRenameFolder, onDeleteFolder, onCollapse }: { notes: Note[]; folders: Folder[]; tags: Tag[]; selectedId: string | null; active: NavigatorFilter; query: string; sort: "updated" | "title"; creatingNote: boolean; onChange: (value: NavigatorFilter) => void; onQueryChange: (value: string) => void; onSortChange: (value: "updated" | "title") => void; onSelect: (id: string) => void; onCreate: () => void; onOpenTemplates: () => void; onOpenTrash: () => void; onOpenArchived: () => void; onCreateFolder: (name: string, parentId: string | null) => Promise<void>; onRenameFolder: (folder: Folder, name: string) => Promise<void>; onDeleteFolder: (folder: Folder) => Promise<void>; onCollapse: () => void }) {
+function PremiumNotesNavigator({ notes, folders, tags, selectedId, active, query, sort, creatingNote, onChange, onQueryChange, onSortChange, onSelect, onCreate, onOpenTemplates, onOpenTrash, onOpenArchived, onCreateFolder, onRenameFolder, onDeleteFolder, onCollapse }: { notes: Note[]; folders: NoteFolder[]; tags: Tag[]; selectedId: string | null; active: NavigatorFilter; query: string; sort: "updated" | "title"; creatingNote: boolean; onChange: (value: NavigatorFilter) => void; onQueryChange: (value: string) => void; onSortChange: (value: "updated" | "title") => void; onSelect: (id: string) => void; onCreate: () => void; onOpenTemplates: () => void; onOpenTrash: () => void; onOpenArchived: () => void; onCreateFolder: (name: string, parentId: string | null) => Promise<void>; onRenameFolder: (folder: NoteFolder, name: string) => Promise<void>; onDeleteFolder: (folder: NoteFolder) => Promise<void>; onCollapse: () => void }) {
   const [foldersOpen, setFoldersOpen] = useState(true);
   const [tagsOpen, setTagsOpen] = useState(true);
   const [newFolderName, setNewFolderName] = useState("");
   const [parentId, setParentId] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
-  const folderLabel = (folder: Folder) => {
+  const folderLabel = (folder: NoteFolder) => {
     const parent = folders.find((item) => item.id === folder.parentId);
     return parent ? `${parent.name} / ${folder.name}` : folder.name;
   };
