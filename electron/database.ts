@@ -14,19 +14,25 @@ import type {
   LocalUser,
   CreateChecklistInput,
   NewCategoryInput,
+  NewFolderInput,
+  NewTagInput,
   Note,
+  NoteRevision,
   SignUpInput,
   SpreadsheetFile,
   UpdateProfileInput,
   UpdateCategoryInput,
   UpdateChecklistInput,
-  UpdateNoteInput
+  UpdateFolderInput,
+  UpdateNoteInput,
+  UpdateTagInput
 } from "../src/types";
 
 const defaultSettings: AppSettings = {
   theme: "light",
   palette: "aurora",
   accent: "pink",
+  notesView: "split",
   customAccent: undefined,
   sidebarCollapsed: false,
   showMascot: true
@@ -46,13 +52,41 @@ interface DbNote {
   title: string;
   content: string;
   category_id: string | null;
+  folder_id: string | null;
   favorite: number;
   is_quick: number;
   created_at: string;
   updated_at: string;
+  deleted_at: string | null;
+  archived_at: string | null;
+}
+
+interface DbNoteRevision {
+  id: string;
+  note_id: string;
+  title: string;
+  content: string;
+  category_id: string | null;
+  favorite: number;
+  is_quick: number;
+  created_at: string;
 }
 
 interface DbCategory {
+  id: string;
+  name: string;
+  color: string;
+  created_at: string;
+}
+
+interface DbFolder {
+  id: string;
+  name: string;
+  parent_id: string | null;
+  created_at: string;
+}
+
+interface DbTag {
   id: string;
   name: string;
   color: string;
@@ -63,6 +97,9 @@ interface DbChecklistItem {
   id: string;
   note_id: string;
   text: string;
+  description: string;
+  priority: "low" | "medium" | "high";
+  due_at: string | null;
   completed: number;
   position: number;
 }
@@ -95,11 +132,16 @@ interface DbSpreadsheet {
 
 export class MochiDatabase {
   private db: Database.Database;
+  private databasePath: string;
+  private existingDatabase: boolean;
 
   constructor(private appDataPath: string) {
     fs.mkdirSync(appDataPath, { recursive: true });
-    this.db = new Database(path.join(appDataPath, "mochi-notes.sqlite"));
+    this.databasePath = path.join(appDataPath, "mochi-notes.sqlite");
+    this.existingDatabase = fs.existsSync(this.databasePath);
+    this.db = new Database(this.databasePath);
     this.db.pragma("journal_mode = WAL");
+    this.db.pragma("foreign_keys = ON");
     this.migrate();
     this.seed();
   }
@@ -119,7 +161,11 @@ export class MochiDatabase {
   getAppData(): AppData {
     return {
       notes: this.getNotes(),
+      trash: this.getDeletedNotes(),
+      archived: this.getArchivedNotes(),
       categories: this.getCategories(),
+      folders: this.getFolders(),
+      tags: this.getTags(),
       spreadsheets: this.getSpreadsheets(),
       settings: this.getSettings()
     };
@@ -223,30 +269,95 @@ export class MochiDatabase {
     const category = this.db.prepare("SELECT id FROM categories ORDER BY created_at LIMIT 1").get() as { id: string } | undefined;
     this.db
       .prepare(
-        "INSERT INTO notes (id, title, content, category_id, favorite, is_quick, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO notes (id, title, content, category_id, folder_id, favorite, is_quick, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
       )
-      .run(id, quick ? "Quick note" : "Untitled note", "", category?.id ?? null, 0, quick ? 1 : 0, timestamp, timestamp);
+      .run(id, quick ? "Nota rápida" : "Sem título", "", category?.id ?? null, category?.id ?? null, 0, quick ? 1 : 0, timestamp, timestamp);
     return this.getNote(id);
   }
 
   updateNote(input: UpdateNoteInput): Note {
     const current = this.getNote(input.id);
+    if (current.deletedAt) throw new Error("Esta nota está na Lixeira.");
     const next = {
       title: input.title ?? current.title,
       content: input.content ?? current.content,
       categoryId: input.categoryId === undefined ? current.categoryId : input.categoryId,
+      folderId: input.folderId === undefined ? current.folderId : input.folderId,
       favorite: input.favorite === undefined ? current.favorite : input.favorite
     };
-    this.db
-      .prepare("UPDATE notes SET title = ?, content = ?, category_id = ?, favorite = ?, updated_at = ? WHERE id = ?")
-      .run(next.title, next.content, next.categoryId, next.favorite ? 1 : 0, now(), input.id);
+    const changed = next.title !== current.title || next.content !== current.content || next.categoryId !== current.categoryId || next.folderId !== current.folderId || next.favorite !== current.favorite;
+    if (changed) this.createRevision(current);
+    this.db.transaction(() => {
+      this.db
+        .prepare("UPDATE notes SET title = ?, content = ?, category_id = ?, folder_id = ?, favorite = ?, updated_at = ? WHERE id = ?")
+        .run(next.title, next.content, next.categoryId, next.folderId, next.favorite ? 1 : 0, now(), input.id);
+      if (input.tagIds !== undefined) {
+        const tagIds = [...new Set(input.tagIds)];
+        tagIds.forEach((tagId) => this.getTag(tagId));
+        this.db.prepare("DELETE FROM note_tags WHERE note_id = ?").run(input.id);
+        const insert = this.db.prepare("INSERT INTO note_tags (note_id, tag_id) VALUES (?, ?)");
+        tagIds.forEach((tagId) => insert.run(input.id, tagId));
+      }
+    })();
     return this.getNote(input.id);
   }
 
   deleteNote(id: string): void {
+    const current = this.getNote(id);
+    if (current.deletedAt) return;
+    this.createRevision(current);
+    this.db.prepare("UPDATE notes SET deleted_at = ?, updated_at = ? WHERE id = ?").run(now(), now(), id);
+  }
+
+  restoreNote(id: string): Note {
+    const current = this.getNote(id);
+    if (!current.deletedAt) return current;
+    this.db.prepare("UPDATE notes SET deleted_at = NULL, updated_at = ? WHERE id = ?").run(now(), id);
+    return this.getNote(id);
+  }
+
+  archiveNote(id: string): Note {
+    const current = this.getNote(id);
+    if (current.deletedAt) throw new Error("Restaure a nota da Lixeira antes de arquivá-la.");
+    if (!current.archivedAt) this.db.prepare("UPDATE notes SET archived_at = ?, updated_at = ? WHERE id = ?").run(now(), now(), id);
+    return this.getNote(id);
+  }
+
+  restoreArchivedNote(id: string): Note {
+    const current = this.getNote(id);
+    if (!current.archivedAt) return current;
+    this.db.prepare("UPDATE notes SET archived_at = NULL, updated_at = ? WHERE id = ?").run(now(), id);
+    return this.getNote(id);
+  }
+
+  permanentlyDeleteNote(id: string): void {
+    const current = this.getNote(id);
+    if (!current.deletedAt) throw new Error("Mova a nota para a Lixeira antes de apagá-la definitivamente.");
     const attachments = this.getAttachments(id);
-    this.db.prepare("DELETE FROM notes WHERE id = ?").run(id);
+    this.db.transaction(() => {
+      this.db.prepare("DELETE FROM note_revisions WHERE note_id = ?").run(id);
+      this.db.prepare("DELETE FROM checklist_items WHERE note_id = ?").run(id);
+      this.db.prepare("DELETE FROM attachments WHERE note_id = ?").run(id);
+      this.db.prepare("DELETE FROM notes WHERE id = ?").run(id);
+    })();
     attachments.forEach((attachment) => this.removeFileQuietly(attachment.path));
+  }
+
+  getNoteRevisions(noteId: string): NoteRevision[] {
+    this.getNote(noteId);
+    const rows = this.db.prepare("SELECT * FROM note_revisions WHERE note_id = ? ORDER BY created_at DESC").all(noteId) as DbNoteRevision[];
+    return rows.map((row) => this.mapRevision(row));
+  }
+
+  restoreNoteRevision(revisionId: string): Note {
+    const revision = this.db.prepare("SELECT * FROM note_revisions WHERE id = ?").get(revisionId) as DbNoteRevision | undefined;
+    if (!revision) throw new Error("Versão não encontrada.");
+    const current = this.getNote(revision.note_id);
+    if (current.deletedAt) throw new Error("Restaure a nota antes de recuperar uma versão.");
+    this.createRevision(current);
+    this.db.prepare("UPDATE notes SET title = ?, content = ?, category_id = ?, favorite = ?, updated_at = ? WHERE id = ?")
+      .run(revision.title, revision.content, revision.category_id, revision.favorite, now(), revision.note_id);
+    return this.getNote(revision.note_id);
   }
 
   createCategory(input: NewCategoryInput): Category {
@@ -266,12 +377,63 @@ export class MochiDatabase {
     this.db.prepare("DELETE FROM categories WHERE id = ?").run(id);
   }
 
+  createFolder(input: NewFolderInput) {
+    const id = randomUUID();
+    const name = input.name.trim();
+    if (!name) throw new Error("Informe um nome para a pasta.");
+    if (input.parentId) this.getFolder(input.parentId);
+    this.db.prepare("INSERT INTO folders (id, name, parent_id, created_at) VALUES (?, ?, ?, ?)").run(id, name, input.parentId ?? null, now());
+    return this.getFolder(id);
+  }
+
+  updateFolder(input: UpdateFolderInput) {
+    const current = this.getFolder(input.id);
+    const name = input.name.trim();
+    if (!name) throw new Error("Informe um nome para a pasta.");
+    const parentId = input.parentId === undefined ? current.parentId : input.parentId;
+    if (parentId === input.id) throw new Error("Uma pasta não pode ser filha dela mesma.");
+    if (parentId) this.getFolder(parentId);
+    this.db.prepare("UPDATE folders SET name = ?, parent_id = ? WHERE id = ?").run(name, parentId ?? null, input.id);
+    return this.getFolder(input.id);
+  }
+
+  deleteFolder(id: string): void {
+    this.getFolder(id);
+    this.db.transaction(() => {
+      this.db.prepare("UPDATE folders SET parent_id = NULL WHERE parent_id = ?").run(id);
+      this.db.prepare("UPDATE notes SET folder_id = NULL, updated_at = ? WHERE folder_id = ?").run(now(), id);
+      this.db.prepare("DELETE FROM folders WHERE id = ?").run(id);
+    })();
+  }
+
+  createTag(input: NewTagInput) {
+    const id = randomUUID();
+    const name = input.name.trim();
+    if (!name) throw new Error("Informe um nome para a etiqueta.");
+    if (!isHexColor(input.color)) throw new Error("Escolha uma cor válida.");
+    this.db.prepare("INSERT INTO tags (id, name, color, created_at) VALUES (?, ?, ?, ?)").run(id, name, input.color, now());
+    return this.getTag(id);
+  }
+
+  updateTag(input: UpdateTagInput) {
+    const name = input.name.trim();
+    if (!name) throw new Error("Informe um nome para a etiqueta.");
+    if (!isHexColor(input.color)) throw new Error("Escolha uma cor válida.");
+    this.db.prepare("UPDATE tags SET name = ?, color = ? WHERE id = ?").run(name, input.color, input.id);
+    return this.getTag(input.id);
+  }
+
+  deleteTag(id: string): void {
+    this.getTag(id);
+    this.db.prepare("DELETE FROM tags WHERE id = ?").run(id);
+  }
+
   createChecklistItem(input: CreateChecklistInput): ChecklistItem {
     const id = randomUUID();
     const positionRow = this.db.prepare("SELECT COALESCE(MAX(position), -1) + 1 AS position FROM checklist_items WHERE note_id = ?").get(input.noteId) as { position: number };
     this.db
-      .prepare("INSERT INTO checklist_items (id, note_id, text, completed, position) VALUES (?, ?, ?, ?, ?)")
-      .run(id, input.noteId, input.text, 0, positionRow.position);
+      .prepare("INSERT INTO checklist_items (id, note_id, text, description, priority, due_at, completed, position) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(id, input.noteId, input.text, input.description?.trim() ?? "", input.priority ?? "medium", input.dueAt ?? null, 0, positionRow.position);
     this.touchNote(input.noteId);
     return this.getChecklistItem(id);
   }
@@ -279,8 +441,11 @@ export class MochiDatabase {
   updateChecklistItem(input: UpdateChecklistInput): ChecklistItem {
     const current = this.getChecklistItem(input.id);
     const text = input.text ?? current.text;
+    const description = input.description === undefined ? current.description : input.description.trim();
+    const priority = input.priority ?? current.priority;
+    const dueAt = input.dueAt === undefined ? current.dueAt : input.dueAt;
     const completed = input.completed === undefined ? current.completed : input.completed;
-    this.db.prepare("UPDATE checklist_items SET text = ?, completed = ? WHERE id = ?").run(text, completed ? 1 : 0, input.id);
+    this.db.prepare("UPDATE checklist_items SET text = ?, description = ?, priority = ?, due_at = ?, completed = ? WHERE id = ?").run(text, description, priority, dueAt, completed ? 1 : 0, input.id);
     this.touchNote(current.noteId);
     return this.getChecklistItem(input.id);
   }
@@ -340,22 +505,44 @@ export class MochiDatabase {
         created_at TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS folders (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        parent_id TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (parent_id) REFERENCES folders(id) ON DELETE SET NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS tags (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        color TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
       CREATE TABLE IF NOT EXISTS notes (
         id TEXT PRIMARY KEY,
         title TEXT NOT NULL,
         content TEXT NOT NULL,
         category_id TEXT,
+        folder_id TEXT,
         favorite INTEGER NOT NULL DEFAULT 0,
         is_quick INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
-        FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
+        deleted_at TEXT,
+        archived_at TEXT,
+        FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
+        FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE SET NULL
       );
 
       CREATE TABLE IF NOT EXISTS checklist_items (
         id TEXT PRIMARY KEY,
         note_id TEXT NOT NULL,
         text TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        priority TEXT NOT NULL DEFAULT 'medium',
+        due_at TEXT,
         completed INTEGER NOT NULL DEFAULT 0,
         position INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE
@@ -376,6 +563,19 @@ export class MochiDatabase {
         value TEXT NOT NULL
       );
 
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        id TEXT PRIMARY KEY,
+        applied_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS note_tags (
+        note_id TEXT NOT NULL,
+        tag_id TEXT NOT NULL,
+        PRIMARY KEY (note_id, tag_id),
+        FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE,
+        FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+      );
+
       CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -393,6 +593,8 @@ export class MochiDatabase {
         created_at TEXT NOT NULL
       );
     `);
+    const recoveryMigration = this.db.prepare("SELECT id FROM schema_migrations WHERE id = ?").get("2026-10-recovery-v1");
+    if (this.existingDatabase && !recoveryMigration) this.backupBeforeMigration();
     const noteColumns = this.db.prepare("PRAGMA table_info(notes)").all() as Array<{ name: string }>;
     if (!noteColumns.some((column) => column.name === "is_quick")) {
       this.db.exec("ALTER TABLE notes ADD COLUMN is_quick INTEGER NOT NULL DEFAULT 0");
@@ -401,6 +603,74 @@ export class MochiDatabase {
     if (!userColumns.some((column) => column.name === "avatar_path")) {
       this.db.exec("ALTER TABLE users ADD COLUMN avatar_path TEXT");
     }
+    this.applyRecoveryMigration();
+    this.applyTaskMetadataMigration();
+    this.applyNotesOrganizationMigration();
+  }
+
+  private applyRecoveryMigration(): void {
+    const migrationId = "2026-10-recovery-v1";
+    const applied = this.db.prepare("SELECT id FROM schema_migrations WHERE id = ?").get(migrationId);
+    if (applied) return;
+    this.db.transaction(() => {
+      const noteColumns = this.db.prepare("PRAGMA table_info(notes)").all() as Array<{ name: string }>;
+      if (!noteColumns.some((column) => column.name === "deleted_at")) {
+        this.db.exec("ALTER TABLE notes ADD COLUMN deleted_at TEXT");
+      }
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS note_revisions (
+          id TEXT PRIMARY KEY,
+          note_id TEXT NOT NULL,
+          title TEXT NOT NULL,
+          content TEXT NOT NULL,
+          category_id TEXT,
+          favorite INTEGER NOT NULL,
+          is_quick INTEGER NOT NULL,
+          created_at TEXT NOT NULL,
+          FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_notes_deleted_at ON notes(deleted_at);
+        CREATE INDEX IF NOT EXISTS idx_note_revisions_note_created ON note_revisions(note_id, created_at DESC);
+      `);
+      this.db.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)").run(migrationId, now());
+    })();
+  }
+
+  private applyTaskMetadataMigration(): void {
+    const migrationId = "2026-10-task-metadata-v1";
+    if (this.db.prepare("SELECT id FROM schema_migrations WHERE id = ?").get(migrationId)) return;
+    this.db.transaction(() => {
+      const columns = this.db.prepare("PRAGMA table_info(checklist_items)").all() as Array<{ name: string }>;
+      if (!columns.some((column) => column.name === "description")) this.db.exec("ALTER TABLE checklist_items ADD COLUMN description TEXT NOT NULL DEFAULT ''");
+      if (!columns.some((column) => column.name === "priority")) this.db.exec("ALTER TABLE checklist_items ADD COLUMN priority TEXT NOT NULL DEFAULT 'medium'");
+      if (!columns.some((column) => column.name === "due_at")) this.db.exec("ALTER TABLE checklist_items ADD COLUMN due_at TEXT");
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_checklist_items_due_at ON checklist_items(due_at)");
+      this.db.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)").run(migrationId, now());
+    })();
+  }
+
+  private applyNotesOrganizationMigration(): void {
+    const migrationId = "2026-10-notes-organization-v1";
+    if (this.db.prepare("SELECT id FROM schema_migrations WHERE id = ?").get(migrationId)) return;
+    this.db.transaction(() => {
+      const noteColumns = this.db.prepare("PRAGMA table_info(notes)").all() as Array<{ name: string }>;
+      if (!noteColumns.some((column) => column.name === "folder_id")) this.db.exec("ALTER TABLE notes ADD COLUMN folder_id TEXT");
+      if (!noteColumns.some((column) => column.name === "archived_at")) this.db.exec("ALTER TABLE notes ADD COLUMN archived_at TEXT");
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_notes_archived_at ON notes(archived_at); CREATE INDEX IF NOT EXISTS idx_notes_folder_id ON notes(folder_id);");
+      const categories = this.db.prepare("SELECT * FROM categories").all() as DbCategory[];
+      const insertFolder = this.db.prepare("INSERT OR IGNORE INTO folders (id, name, parent_id, created_at) VALUES (?, ?, NULL, ?)");
+      categories.forEach((category) => insertFolder.run(category.id, category.name, category.created_at));
+      this.db.prepare("UPDATE notes SET folder_id = category_id WHERE folder_id IS NULL AND category_id IS NOT NULL").run();
+      this.db.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)").run(migrationId, now());
+    })();
+  }
+
+  private backupBeforeMigration(): void {
+    const backupDir = path.join(this.appDataPath, "backups");
+    fs.mkdirSync(backupDir, { recursive: true });
+    this.db.pragma("wal_checkpoint(TRUNCATE)");
+    const timestamp = now().replace(/[:.]/g, "-");
+    fs.copyFileSync(this.databasePath, path.join(backupDir, `mochi-notes-pre-recovery-${timestamp}.sqlite`));
   }
 
   private seed(): void {
@@ -416,7 +686,17 @@ export class MochiDatabase {
   }
 
   private getNotes(): Note[] {
-    const rows = this.db.prepare("SELECT * FROM notes ORDER BY updated_at DESC").all() as DbNote[];
+    const rows = this.db.prepare("SELECT * FROM notes WHERE deleted_at IS NULL AND archived_at IS NULL ORDER BY updated_at DESC").all() as DbNote[];
+    return rows.map((row) => this.mapNote(row));
+  }
+
+  private getDeletedNotes(): Note[] {
+    const rows = this.db.prepare("SELECT * FROM notes WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC").all() as DbNote[];
+    return rows.map((row) => this.mapNote(row));
+  }
+
+  private getArchivedNotes(): Note[] {
+    const rows = this.db.prepare("SELECT * FROM notes WHERE deleted_at IS NULL AND archived_at IS NOT NULL ORDER BY archived_at DESC").all() as DbNote[];
     return rows.map((row) => this.mapNote(row));
   }
 
@@ -428,6 +708,33 @@ export class MochiDatabase {
 
   private getCategories(): Category[] {
     const rows = this.db.prepare("SELECT * FROM categories ORDER BY created_at ASC").all() as DbCategory[];
+    return rows.map((row) => ({ id: row.id, name: row.name, color: row.color, createdAt: row.created_at }));
+  }
+
+  private getFolders() {
+    const rows = this.db.prepare("SELECT * FROM folders ORDER BY name COLLATE NOCASE ASC").all() as DbFolder[];
+    return rows.map((row) => ({ id: row.id, name: row.name, parentId: row.parent_id, createdAt: row.created_at }));
+  }
+
+  private getFolder(id: string) {
+    const row = this.db.prepare("SELECT * FROM folders WHERE id = ?").get(id) as DbFolder | undefined;
+    if (!row) throw new Error("Pasta não encontrada.");
+    return { id: row.id, name: row.name, parentId: row.parent_id, createdAt: row.created_at };
+  }
+
+  private getTags() {
+    const rows = this.db.prepare("SELECT * FROM tags ORDER BY name COLLATE NOCASE ASC").all() as DbTag[];
+    return rows.map((row) => ({ id: row.id, name: row.name, color: row.color, createdAt: row.created_at }));
+  }
+
+  private getTag(id: string) {
+    const row = this.db.prepare("SELECT * FROM tags WHERE id = ?").get(id) as DbTag | undefined;
+    if (!row) throw new Error("Etiqueta não encontrada.");
+    return { id: row.id, name: row.name, color: row.color, createdAt: row.created_at };
+  }
+
+  private getNoteTags(noteId: string) {
+    const rows = this.db.prepare("SELECT tags.* FROM tags INNER JOIN note_tags ON note_tags.tag_id = tags.id WHERE note_tags.note_id = ? ORDER BY tags.name COLLATE NOCASE ASC").all(noteId) as DbTag[];
     return rows.map((row) => ({ id: row.id, name: row.name, color: row.color, createdAt: row.created_at }));
   }
 
@@ -516,13 +823,39 @@ export class MochiDatabase {
       title: row.title,
       content: row.content,
       categoryId: row.category_id,
+      folderId: row.folder_id,
       favorite: Boolean(row.favorite),
       quick: Boolean(row.is_quick),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
+      deletedAt: row.deleted_at,
+      archivedAt: row.archived_at,
+      tags: this.getNoteTags(row.id),
       checklist: this.getChecklist(row.id),
       attachments: this.getAttachments(row.id)
     };
+  }
+
+  private mapRevision(row: DbNoteRevision): NoteRevision {
+    return {
+      id: row.id,
+      noteId: row.note_id,
+      title: row.title,
+      content: row.content,
+      categoryId: row.category_id,
+      favorite: Boolean(row.favorite),
+      quick: Boolean(row.is_quick),
+      createdAt: row.created_at
+    };
+  }
+
+  private createRevision(note: Note): void {
+    this.db.prepare(
+      "INSERT INTO note_revisions (id, note_id, title, content, category_id, favorite, is_quick, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run(randomUUID(), note.id, note.title, note.content, note.categoryId, note.favorite ? 1 : 0, note.quick ? 1 : 0, now());
+    this.db.prepare(
+      "DELETE FROM note_revisions WHERE id IN (SELECT id FROM note_revisions WHERE note_id = ? ORDER BY created_at DESC LIMIT -1 OFFSET 50)"
+    ).run(note.id);
   }
 
   private mapChecklistItem(row: DbChecklistItem): ChecklistItem {
@@ -530,6 +863,9 @@ export class MochiDatabase {
       id: row.id,
       noteId: row.note_id,
       text: row.text,
+      description: row.description ?? "",
+      priority: row.priority ?? "medium",
+      dueAt: row.due_at,
       completed: Boolean(row.completed),
       position: row.position
     };

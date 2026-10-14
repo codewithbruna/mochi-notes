@@ -5,12 +5,16 @@ import type {
   AppSettings,
   CredentialsInput,
   CreateChecklistInput,
+  NewFolderInput,
+  NewTagInput,
   NewCategoryInput,
   SignUpInput,
   UpdateProfileInput,
   UpdateCategoryInput,
   UpdateChecklistInput,
-  UpdateNoteInput
+  UpdateFolderInput,
+  UpdateNoteInput,
+  UpdateTagInput
 } from "../src/types";
 
 let mainWindow: BrowserWindow | null = null;
@@ -24,8 +28,8 @@ const createWindow = async () => {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 820,
-    minWidth: 900,
-    minHeight: 620,
+    minWidth: 800,
+    minHeight: 600,
     title: "Mochi Notes",
     backgroundColor: "#0b252d",
     icon: appIcon,
@@ -99,11 +103,32 @@ function registerIpc() {
     database.deleteNote(id);
     return { ok: true };
   });
+  ipcMain.handle("notes:restore", (_event, id: string) => database.restoreNote(id));
+  ipcMain.handle("notes:archive", (_event, id: string) => database.archiveNote(id));
+  ipcMain.handle("notes:restore-archived", (_event, id: string) => database.restoreArchivedNote(id));
+  ipcMain.handle("notes:permanently-delete", (_event, id: string) => {
+    database.permanentlyDeleteNote(id);
+    return { ok: true };
+  });
+  ipcMain.handle("notes:revisions", (_event, noteId: string) => database.getNoteRevisions(noteId));
+  ipcMain.handle("notes:restore-revision", (_event, revisionId: string) => database.restoreNoteRevision(revisionId));
 
   ipcMain.handle("categories:create", (_event, input: NewCategoryInput) => database.createCategory(input));
   ipcMain.handle("categories:update", (_event, input: UpdateCategoryInput) => database.updateCategory(input));
   ipcMain.handle("categories:delete", (_event, id: string) => {
     database.deleteCategory(id);
+    return { ok: true };
+  });
+  ipcMain.handle("folders:create", (_event, input: NewFolderInput) => database.createFolder(input));
+  ipcMain.handle("folders:update", (_event, input: UpdateFolderInput) => database.updateFolder(input));
+  ipcMain.handle("folders:delete", (_event, id: string) => {
+    database.deleteFolder(id);
+    return { ok: true };
+  });
+  ipcMain.handle("tags:create", (_event, input: NewTagInput) => database.createTag(input));
+  ipcMain.handle("tags:update", (_event, input: UpdateTagInput) => database.updateTag(input));
+  ipcMain.handle("tags:delete", (_event, id: string) => {
+    database.deleteTag(id);
     return { ok: true };
   });
 

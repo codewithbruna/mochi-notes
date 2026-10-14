@@ -1,6 +1,7 @@
 export type ThemeMode = "light" | "dark" | "system";
 export type AccentColor = "pink" | "lilac" | "peach" | "mint" | "aurora";
 export type PaletteName = "aurora" | "lavender" | "mint" | "autumn" | "minimal";
+export type NotesViewMode = "split" | "library" | "focus";
 
 export interface ThemeCustomization {
   appBackground?: string;
@@ -9,9 +10,23 @@ export interface ThemeCustomization {
   surfacePrimary?: string;
   accent?: string;
 }
-export type ViewMode = "notes" | "quick" | "tasks" | "favorites" | "category" | "insights" | "spreadsheets" | "settings";
+export type ViewMode = "notes" | "quick" | "tasks" | "favorites" | "category" | "insights" | "spreadsheets" | "settings" | "trash" | "archived";
 
 export interface Category {
+  id: string;
+  name: string;
+  color: string;
+  createdAt: string;
+}
+
+export interface Folder {
+  id: string;
+  name: string;
+  parentId: string | null;
+  createdAt: string;
+}
+
+export interface Tag {
   id: string;
   name: string;
   color: string;
@@ -22,9 +37,14 @@ export interface ChecklistItem {
   id: string;
   noteId: string;
   text: string;
+  description: string;
+  priority: TaskPriority;
+  dueAt: string | null;
   completed: boolean;
   position: number;
 }
+
+export type TaskPriority = "low" | "medium" | "high";
 
 export interface Attachment {
   id: string;
@@ -40,18 +60,34 @@ export interface Note {
   title: string;
   content: string;
   categoryId: string | null;
+  folderId: string | null;
   favorite: boolean;
   quick: boolean;
   createdAt: string;
   updatedAt: string;
+  deletedAt: string | null;
+  archivedAt: string | null;
+  tags: Tag[];
   checklist: ChecklistItem[];
   attachments: Attachment[];
+}
+
+export interface NoteRevision {
+  id: string;
+  noteId: string;
+  title: string;
+  content: string;
+  categoryId: string | null;
+  favorite: boolean;
+  quick: boolean;
+  createdAt: string;
 }
 
 export interface AppSettings {
   theme: ThemeMode;
   palette: PaletteName;
   accent: AccentColor;
+  notesView: NotesViewMode;
   customAccent?: string;
   customPalette?: ThemeCustomization;
   sidebarCollapsed: boolean;
@@ -60,7 +96,11 @@ export interface AppSettings {
 
 export interface AppData {
   notes: Note[];
+  trash: Note[];
+  archived: Note[];
   categories: Category[];
+  folders: Folder[];
+  tags: Tag[];
   spreadsheets: SpreadsheetFile[];
   settings: AppSettings;
 }
@@ -115,17 +155,43 @@ export interface UpdateNoteInput {
   title?: string;
   content?: string;
   categoryId?: string | null;
+  folderId?: string | null;
+  tagIds?: string[];
   favorite?: boolean;
+}
+
+export interface NewFolderInput {
+  name: string;
+  parentId?: string | null;
+}
+
+export interface UpdateFolderInput extends NewFolderInput {
+  id: string;
+}
+
+export interface NewTagInput {
+  name: string;
+  color: string;
+}
+
+export interface UpdateTagInput extends NewTagInput {
+  id: string;
 }
 
 export interface CreateChecklistInput {
   noteId: string;
   text: string;
+  description?: string;
+  priority?: TaskPriority;
+  dueAt?: string | null;
 }
 
 export interface UpdateChecklistInput {
   id: string;
   text?: string;
+  description?: string;
+  priority?: TaskPriority;
+  dueAt?: string | null;
   completed?: boolean;
 }
 
@@ -144,9 +210,21 @@ export interface MochiApi {
   openSpreadsheet: (id: string) => Promise<{ ok: true }>;
   updateNote: (input: UpdateNoteInput) => Promise<Note>;
   deleteNote: (id: string) => Promise<{ ok: true }>;
+  restoreNote: (id: string) => Promise<Note>;
+  archiveNote: (id: string) => Promise<Note>;
+  restoreArchivedNote: (id: string) => Promise<Note>;
+  permanentlyDeleteNote: (id: string) => Promise<{ ok: true }>;
+  getNoteRevisions: (noteId: string) => Promise<NoteRevision[]>;
+  restoreNoteRevision: (revisionId: string) => Promise<Note>;
   createCategory: (input: NewCategoryInput) => Promise<Category>;
   updateCategory: (input: UpdateCategoryInput) => Promise<Category>;
   deleteCategory: (id: string) => Promise<{ ok: true }>;
+  createFolder: (input: NewFolderInput) => Promise<Folder>;
+  updateFolder: (input: UpdateFolderInput) => Promise<Folder>;
+  deleteFolder: (id: string) => Promise<{ ok: true }>;
+  createTag: (input: NewTagInput) => Promise<Tag>;
+  updateTag: (input: UpdateTagInput) => Promise<Tag>;
+  deleteTag: (id: string) => Promise<{ ok: true }>;
   createChecklistItem: (input: CreateChecklistInput) => Promise<ChecklistItem>;
   updateChecklistItem: (input: UpdateChecklistInput) => Promise<ChecklistItem>;
   deleteChecklistItem: (id: string) => Promise<{ ok: true }>;

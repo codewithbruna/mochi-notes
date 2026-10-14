@@ -11,13 +11,13 @@ export const accentMap = {
 export function formatDate(value: string) {
   const date = new Date(value);
   const today = new Date();
-  if (date.toDateString() === today.toDateString()) return "Today";
+  if (date.toDateString() === today.toDateString()) return "Hoje";
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
 }
 
 export function plainPreview(note: Note) {
   const text = note.content.trim().replace(/\s+/g, " ");
-  return text || "A soft blank page, ready for thoughts...";
+  return text || "Uma página em branco, pronta para suas ideias...";
 }
 
 export function getCategory(categories: Category[], id: string | null) {

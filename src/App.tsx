@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CheckSquare, ChevronDown, Heart, ListTodo, LogOut, Menu, Moon, Plus, Search, Settings, Sun, UserRound } from "lucide-react";
+import { CheckSquare, ChevronDown, Heart, ListTodo, LogOut, Menu, Moon, Plus, Search, Settings, Sun, Trash2, UserRound } from "lucide-react";
 import { AuthScreen } from "./components/AuthScreen";
 import { InsightsDashboard } from "./components/InsightsDashboard";
 import { SpreadsheetsPage } from "./components/SpreadsheetsPage";
@@ -7,15 +7,23 @@ import { Sidebar } from "./components/Sidebar";
 import { NoteList } from "./components/NoteList";
 import { NoteEditor } from "./components/NoteEditor";
 import { SettingsPage } from "./components/SettingsPage";
-import type { AppData, AppSettings, AuthStatus, Category, Note, ViewMode } from "./types";
+import { RevisionHistoryPanel } from "./components/RevisionHistoryPanel";
+import { TrashNote } from "./components/TrashNote";
+import { TasksPage, type TaskDraft, type TaskRecord } from "./components/TasksPage";
+import { NotesWorkspace, type NoteTemplate } from "./components/NotesWorkspace";
+import type { AppData, AppSettings, AuthStatus, Category, Folder, Note, ViewMode } from "./types";
 import { applyThemeTokens, resolveTheme } from "./theme";
 import appIcon from "./assets/app-icon-256.png";
 
 const emptyData: AppData = {
   notes: [],
+  trash: [],
+  archived: [],
   categories: [],
+  folders: [],
+  tags: [],
   spreadsheets: [],
-  settings: { theme: "light", palette: "aurora", accent: "pink", sidebarCollapsed: false, showMascot: true }
+  settings: { theme: "light", palette: "aurora", accent: "pink", notesView: "split", sidebarCollapsed: false, showMascot: true }
 };
 
 export function App() {
@@ -27,10 +35,15 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [auth, setAuth] = useState<AuthStatus | null>(null);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [historyNote, setHistoryNote] = useState<Note | null>(null);
+  const [creatingNote, setCreatingNote] = useState(false);
+  const [noteCreationError, setNoteCreationError] = useState<string | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const accountMenuRef = useRef<HTMLDivElement>(null);
+  const creatingNoteRef = useRef(false);
 
-  const selectedNote = useMemo(() => data.notes.find((note) => note.id === selectedId) ?? data.notes[0] ?? null, [data.notes, selectedId]);
+  const currentNotes = view === "trash" ? data.trash : view === "archived" ? data.archived : data.notes;
+  const selectedNote = useMemo(() => currentNotes.find((note) => note.id === selectedId) ?? currentNotes[0] ?? null, [currentNotes, selectedId]);
 
   useEffect(() => {
     window.mochi.getAuthStatus().then((status) => {
@@ -89,20 +102,113 @@ export function App() {
       setSelectedId(selectId);
       return;
     }
-    if (selectedId && appData.notes.some((note) => note.id === selectedId)) return;
-    setSelectedId(appData.notes[0]?.id ?? null);
+    const collection = view === "trash" ? appData.trash : view === "archived" ? appData.archived : appData.notes;
+    if (selectedId && collection.some((note) => note.id === selectedId)) return;
+    setSelectedId(collection[0]?.id ?? null);
   };
 
-  const createNote = async () => {
-    const note = await window.mochi.createNote();
-    await refreshData(note.id);
+  const createNote = async (template?: NoteTemplate) => {
+    if (creatingNoteRef.current) return;
+    creatingNoteRef.current = true;
+    setCreatingNote(true);
+    setNoteCreationError(null);
+    const templates: Record<NoteTemplate, { title: string; content: string }> = {
+      project: { title: "Novo projeto", content: "Visão do projeto\n\nObjetivo\n\nPróximos passos\n\nNotas e referências" },
+      meeting: { title: "Registro de reunião", content: "Participantes\n\nPontos principais\n\nDecisões\n\nPróximos passos" },
+      weekly: { title: "Planejamento semanal", content: "Meu foco da semana\n\nPrioridades\n\nPequenos passos\n\nO que quero celebrar" },
+      classNotes: { title: "Anotações de aula", content: "Tema da aula\n\nIdeias principais\n\nPerguntas\n\nPróximos estudos" },
+      journal: { title: "Diário pessoal", content: "Como estou me sentindo hoje?\n\nO que quero guardar deste dia?\n\nUma pequena coisa para celebrar" },
+      technical: { title: "Documentação técnica", content: "Contexto\n\nComo funciona\n\nDecisões\n\nReferências" }
+    };
+    try {
+      setView("notes");
+      if (data.settings.notesView !== "split") await updateSettings({ notesView: "split" });
+      let note = await window.mochi.createNote();
+      if (template) {
+        const draft = templates[template];
+        note = await window.mochi.updateNote({ id: note.id, title: draft.title, content: draft.content });
+      }
+      setData((current) => ({ ...current, notes: [note, ...current.notes.filter((item) => item.id !== note.id)] }));
+      setSelectedId(note.id);
+      const appData = await window.mochi.getAppData();
+      setData(appData);
+      setSelectedId(note.id);
+    } catch (error) {
+      setNoteCreationError(error instanceof Error ? error.message : "Não foi possível criar a nota. Tente novamente.");
+    } finally {
+      creatingNoteRef.current = false;
+      setCreatingNote(false);
+    }
   };
+
+  const createNoteFromTemplate = async (template: NoteTemplate) => createNote(template);
 
   const createTask = async () => {
     const note = await window.mochi.createNote();
     await window.mochi.createChecklistItem({ noteId: note.id, text: "Nova tarefa" });
     setView("tasks");
     await refreshData(note.id);
+  };
+
+  const createTaskFromPage = async (draft: TaskDraft) => {
+    const note = await window.mochi.createNote();
+    await window.mochi.updateNote({ id: note.id, title: draft.text.trim(), content: draft.description.trim() });
+    const task = await window.mochi.createChecklistItem({ noteId: note.id, text: draft.text.trim(), description: draft.description, priority: draft.priority, dueAt: draft.dueAt || null });
+    if (draft.completed) await window.mochi.updateChecklistItem({ id: task.id, completed: true });
+    await refreshData(note.id);
+  };
+
+  const updateTaskFromPage = async (task: TaskRecord, draft: TaskDraft) => {
+    await window.mochi.updateChecklistItem({ id: task.item.id, text: draft.text.trim(), description: draft.description, priority: draft.priority, dueAt: draft.dueAt || null, completed: draft.completed });
+    if (task.note.checklist.length === 1 && task.note.title === task.item.text) {
+      await window.mochi.updateNote({ id: task.note.id, title: draft.text.trim(), content: draft.description.trim() });
+    }
+    await refreshData(task.note.id);
+  };
+
+  const toggleTaskFromPage = async (task: TaskRecord) => {
+    await window.mochi.updateChecklistItem({ id: task.item.id, completed: !task.item.completed });
+    await refreshData(task.note.id);
+  };
+
+  const duplicateTaskFromPage = async (task: TaskRecord) => {
+    await window.mochi.createChecklistItem({ noteId: task.note.id, text: `${task.item.text} (cópia)`, description: task.item.description, priority: task.item.priority, dueAt: task.item.dueAt });
+    await refreshData(task.note.id);
+  };
+
+  const deleteTaskFromPage = async (task: TaskRecord) => {
+    await window.mochi.deleteChecklistItem(task.item.id);
+    await refreshData(task.note.id);
+  };
+
+  const transformNoteToTask = async (note: Note) => {
+    const title = note.title.trim() || "Tarefa da nota";
+    if (!confirm(`Transformar “${title}” em uma tarefa? A nota continuará preservada e a tarefa ficará vinculada a ela.`)) return;
+    await window.mochi.createChecklistItem({ noteId: note.id, text: title, description: note.content.trim(), priority: "medium" });
+    await refreshData(note.id);
+  };
+
+  const createFolderFromNotes = async (name: string, parentId: string | null) => {
+    await window.mochi.createFolder({ name, parentId });
+    await refreshData();
+  };
+
+  const renameFolderFromNotes = async (folder: Folder, name: string) => {
+    await window.mochi.updateFolder({ id: folder.id, name, parentId: folder.parentId });
+    await refreshData();
+  };
+
+  const deleteFolderFromNotes = async (folder: Folder) => {
+    await window.mochi.deleteFolder(folder.id);
+    await refreshData();
+  };
+
+  const toggleArchiveNote = async (note: Note) => {
+    const action = note.archivedAt ? "restaurar" : "arquivar";
+    if (!confirm(`${action.charAt(0).toUpperCase()}${action.slice(1)} “${note.title || "Sem título"}”?`)) return;
+    if (note.archivedAt) await window.mochi.restoreArchivedNote(note.id);
+    else await window.mochi.archiveNote(note.id);
+    await refreshData(null);
   };
 
   const createSpreadsheet = async (name: string) => {
@@ -143,7 +249,8 @@ export function App() {
 
   const filteredNotes = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    return data.notes.filter((note) => {
+    const source = view === "trash" ? data.trash : view === "archived" ? data.archived : data.notes;
+    return source.filter((note) => {
       const matchesSearch = !normalized || note.title.toLowerCase().includes(normalized) || note.content.toLowerCase().includes(normalized);
       const matchesView =
         view === "favorites"
@@ -157,21 +264,33 @@ export function App() {
               : true;
       return matchesSearch && matchesView;
     });
-  }, [activeCategoryId, data.notes, query, view]);
+  }, [activeCategoryId, data.notes, data.trash, query, view]);
 
   const pickView = (nextView: ViewMode, categoryId: string | null = null) => {
     setView(nextView);
     setActiveCategoryId(categoryId);
-    if (nextView === "insights" || nextView === "spreadsheets" || nextView === "settings") return;
-    const nextSelected = data.notes.find((note) =>
-      nextView === "quick" ? note.quick : nextView === "favorites" ? note.favorite : nextView === "tasks" ? note.checklist.length > 0 : nextView === "category" ? note.categoryId === categoryId : true
+    if (nextView === "insights" || nextView === "spreadsheets" || nextView === "settings" || nextView === "tasks") return;
+    const source = nextView === "trash" ? data.trash : nextView === "archived" ? data.archived : data.notes;
+    const nextSelected = source.find((note) =>
+      nextView === "quick" ? note.quick : nextView === "favorites" ? note.favorite : nextView === "category" ? note.categoryId === categoryId : true
     );
     setSelectedId(nextSelected?.id ?? null);
   };
 
   const deleteSelectedNote = async (id: string) => {
-    if (!confirm("Delete this note? This cannot be undone.")) return;
+    if (!confirm("Mover esta nota para a Lixeira? Você poderá restaurá-la depois.")) return;
     await window.mochi.deleteNote(id);
+    await refreshData(null);
+  };
+
+  const restoreTrashedNote = async (id: string) => {
+    const note = await window.mochi.restoreNote(id);
+    setView("notes");
+    await refreshData(note.id);
+  };
+
+  const permanentlyDeleteTrashedNote = async (id: string) => {
+    await window.mochi.permanentlyDeleteNote(id);
     await refreshData(null);
   };
 
@@ -210,7 +329,7 @@ export function App() {
         </div>
       </header>
 
-      <section className={`workspace ${data.settings.sidebarCollapsed ? "sidebar-collapsed" : ""} ${(view === "insights" || view === "spreadsheets" || view === "settings") ? "insights-active" : ""}`}>
+      <section className={`workspace ${data.settings.sidebarCollapsed ? "sidebar-collapsed" : ""} ${(view === "insights" || view === "spreadsheets" || view === "settings" || view === "tasks" || view === "notes") ? "insights-active" : ""}`}>
         <Sidebar
           categories={data.categories}
           settings={data.settings}
@@ -225,6 +344,10 @@ export function App() {
         />
         {view === "insights" ? (
           <InsightsDashboard notes={data.notes} showMascot={data.settings.showMascot} onCreateNote={createNote} onCreateTask={createTask} onCreateSpreadsheet={() => createSpreadsheet("Nova planilha")} onOpenFavorites={() => pickView("favorites")} user={auth.user!} />
+        ) : view === "tasks" ? (
+          <TasksPage notes={data.notes} categories={data.categories} query={query} onQueryChange={setQuery} onCreate={createTaskFromPage} onUpdate={updateTaskFromPage} onToggle={toggleTaskFromPage} onDuplicate={duplicateTaskFromPage} onDelete={deleteTaskFromPage} />
+        ) : view === "notes" ? (
+          <NotesWorkspace notes={data.notes} categories={data.categories} folders={data.folders} tags={data.tags} settings={data.settings} selectedNote={selectedNote} query={query} creationError={noteCreationError} creatingNote={creatingNote} onQueryChange={setQuery} onSelect={setSelectedId} onCreateNote={createNote} onCreateFromTemplate={createNoteFromTemplate} onOpenTrash={() => pickView("trash")} onOpenArchived={() => pickView("archived")} onUpdateSettings={updateSettings} onUpdateNote={updateNoteLocally} onRefresh={refreshData} onDeleteNote={deleteSelectedNote} onOpenHistory={setHistoryNote} onTransformToTask={transformNoteToTask} onCreateFolder={createFolderFromNotes} onRenameFolder={renameFolderFromNotes} onDeleteFolder={deleteFolderFromNotes} onArchive={toggleArchiveNote} />
         ) : view === "spreadsheets" ? (
           <SpreadsheetsPage spreadsheets={data.spreadsheets} onCreate={createSpreadsheet} onImport={importSpreadsheet} onOpen={async (id) => { await window.mochi.openSpreadsheet(id); }} />
         ) : view === "settings" ? (
@@ -240,24 +363,34 @@ export function App() {
               loading={loading}
               onSelect={setSelectedId}
               onCreateNote={createNote}
+              onOpenTrash={() => pickView("trash")}
+              onLeaveTrash={() => pickView("notes")}
             />
             <section className="editor-pane">
-              {selectedNote ? (
+              {selectedNote && view === "trash" ? (
+                <TrashNote note={selectedNote} onRestore={restoreTrashedNote} onPermanentlyDelete={permanentlyDeleteTrashedNote} />
+              ) : selectedNote ? (
                 <NoteEditor
                   key={selectedNote.id}
                   note={selectedNote}
                   categories={data.categories}
+                  folders={data.folders}
+                  tags={data.tags}
                   onUpdate={updateNoteLocally}
                   onRefresh={refreshData}
                   onDelete={deleteSelectedNote}
+                  onOpenHistory={setHistoryNote}
+                  onTransformToTask={transformNoteToTask}
+                  onArchive={toggleArchiveNote}
                 />
               ) : (
-                <InsightsDashboard notes={data.notes} showMascot={data.settings.showMascot} onCreateNote={createNote} onCreateTask={createTask} onCreateSpreadsheet={() => createSpreadsheet("Nova planilha")} onOpenFavorites={() => pickView("favorites")} user={auth.user!} />
+                view === "trash" ? <section className="trash-empty-pane"><Trash2 size={28} aria-hidden="true" /><h2>Nenhuma nota selecionada</h2><p>Notas removidas ficam aqui até serem restauradas ou apagadas definitivamente.</p></section> : <InsightsDashboard notes={data.notes} showMascot={data.settings.showMascot} onCreateNote={createNote} onCreateTask={createTask} onCreateSpreadsheet={() => createSpreadsheet("Nova planilha")} onOpenFavorites={() => pickView("favorites")} user={auth.user!} />
               )}
             </section>
           </>
         )}
       </section>
+      {historyNote && <RevisionHistoryPanel note={historyNote} onClose={() => setHistoryNote(null)} onRestored={(note) => { updateNoteLocally(note); setHistoryNote(null); }} />}
       <div className="corner-softener" />
       <div className="decor decor-one"><Heart size={13} /></div>
       <div className="decor decor-two"><CheckSquare size={13} /></div>

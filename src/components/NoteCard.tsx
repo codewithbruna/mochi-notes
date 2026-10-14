@@ -18,7 +18,7 @@ export function NoteCard({ note, categories, active, onSelect }: Props) {
   return (
     <button className={`note-card ${active ? "active" : ""}`} onClick={() => onSelect(note.id)}>
       <div className="note-card-title">
-        <span>{note.favorite ? "♥" : "♡"} {note.title || "Untitled note"}</span>
+        <span>{note.favorite ? "♥" : "♡"} {note.title || "Sem título"}</span>
         {note.favorite && <Heart size={15} fill="currentColor" />}
       </div>
       <p>{plainPreview(note)}</p>
