@@ -35,6 +35,9 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
 
   const changeMode = (nextMode: AuthMode) => {
     setMode(nextMode);
+    setEmail("");
+    setPassword("");
+    setShowPassword(false);
     setError("");
   };
 
@@ -67,7 +70,7 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
             <button className={mode === "signup" ? "active" : ""} onClick={() => changeMode("signup")} type="button" role="tab" aria-selected={mode === "signup"}>Criar conta</button>
           </div>
 
-          <form className="auth-form" onSubmit={submit}>
+          <form className="auth-form" onSubmit={submit} autoComplete="off">
             {mode === "signup" && (
               <label>
                 <span>Como podemos te chamar?</span>
@@ -76,13 +79,13 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
             )}
             <label>
               <span>E-mail</span>
-              <div className="auth-input"><Mail size={18} /><input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="voce@exemplo.com" type="email" autoComplete="email" required /></div>
+              <div className="auth-input"><Mail size={18} /><input name="mochi-account-email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="voce@exemplo.com" type="email" autoComplete={mode === "signup" ? "off" : "email"} data-1p-ignore={mode === "signup" ? "true" : undefined} data-lpignore={mode === "signup" ? "true" : undefined} required /></div>
             </label>
             <label>
               <span>Senha</span>
               <div className="auth-input">
                 <LockKeyhole size={18} />
-                <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder={mode === "signup" ? "No mínimo 6 caracteres" : "Sua senha"} type={showPassword ? "text" : "password"} autoComplete={mode === "signup" ? "new-password" : "current-password"} required />
+                <input name="mochi-account-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder={mode === "signup" ? "No mínimo 6 caracteres" : "Sua senha"} type={showPassword ? "text" : "password"} autoComplete={mode === "signup" ? "new-password" : "current-password"} data-1p-ignore={mode === "signup" ? "true" : undefined} data-lpignore={mode === "signup" ? "true" : undefined} required />
                 <button className="password-toggle" type="button" onClick={() => setShowPassword((current) => !current)} aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}>{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button>
               </div>
             </label>
@@ -92,7 +95,7 @@ export function AuthScreen({ onAuthenticated }: AuthScreenProps) {
               {!submitting && <ArrowRight size={18} />}
             </button>
           </form>
-          <p className="auth-footnote">Suas credenciais ficam apenas neste computador.</p>
+          <p className="auth-footnote">Sua conta mantém seu espaço protegido e pronto para sincronizar.</p>
         </div>
       </section>
     </main>
