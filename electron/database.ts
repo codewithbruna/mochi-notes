@@ -128,6 +128,8 @@ interface DbSpreadsheet {
   path: string;
   type: "xlsx" | "csv";
   created_at: string;
+  updated_at: string;
+  favorite: number;
 }
 
 export class MochiDatabase {
@@ -248,7 +250,8 @@ export class MochiDatabase {
     const sheet = XLSX.utils.aoa_to_sheet([["Item", "Descrição", "Valor", "Data"]]);
     XLSX.utils.book_append_sheet(workbook, sheet, "Planilha 1");
     XLSX.writeFile(workbook, filePath);
-    this.db.prepare("INSERT INTO spreadsheets (id, name, path, type, created_at) VALUES (?, ?, ?, ?, ?)").run(id, title, filePath, "xlsx", now());
+    const timestamp = now();
+    this.db.prepare("INSERT INTO spreadsheets (id, name, path, type, favorite, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(id, title, filePath, "xlsx", 0, timestamp, timestamp);
     return this.getSpreadsheet(id);
   }
 
@@ -259,7 +262,40 @@ export class MochiDatabase {
     const name = path.basename(sourcePath, path.extname(sourcePath));
     const filePath = path.join(this.spreadsheetsPath, `${id}-${path.basename(sourcePath).replace(/[^\w.\- ]/g, "_")}`);
     fs.copyFileSync(sourcePath, filePath);
-    this.db.prepare("INSERT INTO spreadsheets (id, name, path, type, created_at) VALUES (?, ?, ?, ?, ?)").run(id, name, filePath, extension, now());
+    const timestamp = now();
+    this.db.prepare("INSERT INTO spreadsheets (id, name, path, type, favorite, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(id, name, filePath, extension, 0, timestamp, timestamp);
+    return this.getSpreadsheet(id);
+  }
+
+  updateSpreadsheet(input: { id: string; name?: string; favorite?: boolean }): SpreadsheetFile {
+    const current = this.getSpreadsheet(input.id);
+    const name = input.name === undefined ? current.name : input.name.trim() || current.name;
+    const favorite = input.favorite === undefined ? current.favorite : input.favorite;
+    this.db.prepare("UPDATE spreadsheets SET name = ?, favorite = ?, updated_at = ? WHERE id = ?").run(name, favorite ? 1 : 0, now(), input.id);
+    return this.getSpreadsheet(input.id);
+  }
+
+  duplicateSpreadsheet(id: string): SpreadsheetFile {
+    const source = this.getSpreadsheet(id);
+    const newId = randomUUID();
+    const extension = path.extname(source.path) || `.${source.type}`;
+    const title = `${source.name} (cópia)`;
+    const destination = path.join(this.spreadsheetsPath, `${newId}-${title.replace(/[^\w.\- ]/g, "_").slice(0, 60)}${extension}`);
+    fs.copyFileSync(source.path, destination);
+    const timestamp = now();
+    this.db.prepare("INSERT INTO spreadsheets (id, name, path, type, favorite, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)").run(newId, title, destination, source.type, 0, timestamp, timestamp);
+    return this.getSpreadsheet(newId);
+  }
+
+  deleteSpreadsheet(id: string): void {
+    const spreadsheet = this.getSpreadsheet(id);
+    if (fs.existsSync(spreadsheet.path)) fs.unlinkSync(spreadsheet.path);
+    this.db.prepare("DELETE FROM spreadsheets WHERE id = ?").run(id);
+  }
+
+  openSpreadsheet(id: string): SpreadsheetFile {
+    const spreadsheet = this.getSpreadsheet(id);
+    this.db.prepare("UPDATE spreadsheets SET updated_at = ? WHERE id = ?").run(now(), id);
     return this.getSpreadsheet(id);
   }
 
@@ -590,7 +626,9 @@ export class MochiDatabase {
         name TEXT NOT NULL,
         path TEXT NOT NULL,
         type TEXT NOT NULL,
-        created_at TEXT NOT NULL
+        favorite INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
       );
     `);
     const recoveryMigration = this.db.prepare("SELECT id FROM schema_migrations WHERE id = ?").get("2026-10-recovery-v1");
@@ -606,6 +644,7 @@ export class MochiDatabase {
     this.applyRecoveryMigration();
     this.applyTaskMetadataMigration();
     this.applyNotesOrganizationMigration();
+    this.applySpreadsheetLibraryMigration();
   }
 
   private applyRecoveryMigration(): void {
@@ -661,6 +700,19 @@ export class MochiDatabase {
       const insertFolder = this.db.prepare("INSERT OR IGNORE INTO folders (id, name, parent_id, created_at) VALUES (?, ?, NULL, ?)");
       categories.forEach((category) => insertFolder.run(category.id, category.name, category.created_at));
       this.db.prepare("UPDATE notes SET folder_id = category_id WHERE folder_id IS NULL AND category_id IS NOT NULL").run();
+      this.db.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)").run(migrationId, now());
+    })();
+  }
+
+  private applySpreadsheetLibraryMigration(): void {
+    const migrationId = "2026-10-spreadsheet-library-v1";
+    if (this.db.prepare("SELECT id FROM schema_migrations WHERE id = ?").get(migrationId)) return;
+    this.db.transaction(() => {
+      const columns = this.db.prepare("PRAGMA table_info(spreadsheets)").all() as Array<{ name: string }>;
+      if (!columns.some((column) => column.name === "favorite")) this.db.exec("ALTER TABLE spreadsheets ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0");
+      if (!columns.some((column) => column.name === "updated_at")) this.db.exec("ALTER TABLE spreadsheets ADD COLUMN updated_at TEXT");
+      this.db.prepare("UPDATE spreadsheets SET updated_at = created_at WHERE updated_at IS NULL").run();
+      this.db.exec("CREATE INDEX IF NOT EXISTS idx_spreadsheets_updated_at ON spreadsheets(updated_at)");
       this.db.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)").run(migrationId, now());
     })();
   }
@@ -741,12 +793,12 @@ export class MochiDatabase {
   getSpreadsheet(id: string): SpreadsheetFile {
     const row = this.db.prepare("SELECT * FROM spreadsheets WHERE id = ?").get(id) as DbSpreadsheet | undefined;
     if (!row) throw new Error("Planilha não encontrada.");
-    return { id: row.id, name: row.name, path: row.path, type: row.type, createdAt: row.created_at };
+    return { id: row.id, name: row.name, path: row.path, type: row.type, favorite: Boolean(row.favorite), createdAt: row.created_at, updatedAt: row.updated_at };
   }
 
   private getSpreadsheets(): SpreadsheetFile[] {
     const rows = this.db.prepare("SELECT * FROM spreadsheets ORDER BY created_at DESC").all() as DbSpreadsheet[];
-    return rows.map((row) => ({ id: row.id, name: row.name, path: row.path, type: row.type, createdAt: row.created_at }));
+    return rows.map((row) => ({ id: row.id, name: row.name, path: row.path, type: row.type, favorite: Boolean(row.favorite), createdAt: row.created_at, updatedAt: row.updated_at }));
   }
 
   private getCategory(id: string): Category {

@@ -14,7 +14,8 @@ import type {
   UpdateChecklistInput,
   UpdateFolderInput,
   UpdateNoteInput,
-  UpdateTagInput
+  UpdateTagInput,
+  UpdateSpreadsheetInput
 } from "../src/types";
 
 let mainWindow: BrowserWindow | null = null;
@@ -95,7 +96,14 @@ function registerIpc() {
     return result.canceled || !result.filePaths[0] ? null : database.importSpreadsheet(result.filePaths[0]);
   });
   ipcMain.handle("spreadsheets:open", async (_event, id: string) => {
-    await shell.openPath(database.getSpreadsheet(id).path);
+    await shell.openPath(database.openSpreadsheet(id).path);
+    return { ok: true };
+  });
+  ipcMain.handle("spreadsheets:import-path", (_event, filePath: string) => database.importSpreadsheet(filePath));
+  ipcMain.handle("spreadsheets:update", (_event, input: UpdateSpreadsheetInput) => database.updateSpreadsheet(input));
+  ipcMain.handle("spreadsheets:duplicate", (_event, id: string) => database.duplicateSpreadsheet(id));
+  ipcMain.handle("spreadsheets:delete", (_event, id: string) => {
+    database.deleteSpreadsheet(id);
     return { ok: true };
   });
   ipcMain.handle("notes:update", (_event, input: UpdateNoteInput) => database.updateNote(input));

@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { CheckSquare, ChevronDown, Heart, ListTodo, LogOut, Menu, Moon, Plus, Search, Settings, Sun, Trash2, UserRound } from "lucide-react";
 import { AuthScreen } from "./components/AuthScreen";
 import { InsightsDashboard } from "./components/InsightsDashboard";
-import { SpreadsheetsPage } from "./components/SpreadsheetsPage";
+import { FavoritesPage } from "./components/FavoritesPage";
+import { SpreadsheetLibraryPage } from "./components/SpreadsheetLibraryPage";
 import { Sidebar } from "./components/Sidebar";
 import { NoteList } from "./components/NoteList";
 import { NoteEditor } from "./components/NoteEditor";
@@ -11,7 +12,7 @@ import { RevisionHistoryPanel } from "./components/RevisionHistoryPanel";
 import { TrashNote } from "./components/TrashNote";
 import { TasksPage, type TaskDraft, type TaskRecord } from "./components/TasksPage";
 import { NotesWorkspace, type NoteTemplate } from "./components/NotesWorkspace";
-import type { AppData, AppSettings, AuthStatus, Category, Folder, Note, ViewMode } from "./types";
+import type { AppData, AppSettings, AuthStatus, Category, Folder, Note, SpreadsheetFile, ViewMode } from "./types";
 import { applyThemeTokens, resolveTheme } from "./theme";
 import appIcon from "./assets/app-icon-256.png";
 
@@ -217,9 +218,37 @@ export function App() {
     await window.mochi.openSpreadsheet(spreadsheet.id);
   };
 
-  const importSpreadsheet = async () => {
+  const importSpreadsheet = async (): Promise<boolean> => {
     const spreadsheet = await window.mochi.importSpreadsheet();
-    if (spreadsheet) await refreshData();
+    if (!spreadsheet) return false;
+    await refreshData();
+    return true;
+  };
+
+  const importSpreadsheetPath = async (filePath: string): Promise<boolean> => {
+    await window.mochi.importSpreadsheetPath(filePath);
+    await refreshData();
+    return true;
+  };
+
+  const renameSpreadsheet = async (spreadsheet: SpreadsheetFile, name: string) => {
+    await window.mochi.updateSpreadsheet({ id: spreadsheet.id, name });
+    await refreshData();
+  };
+
+  const duplicateSpreadsheet = async (spreadsheet: SpreadsheetFile) => {
+    await window.mochi.duplicateSpreadsheet(spreadsheet.id);
+    await refreshData();
+  };
+
+  const deleteSpreadsheet = async (spreadsheet: SpreadsheetFile) => {
+    await window.mochi.deleteSpreadsheet(spreadsheet.id);
+    await refreshData();
+  };
+
+  const toggleSpreadsheetFavorite = async (spreadsheet: SpreadsheetFile) => {
+    await window.mochi.updateSpreadsheet({ id: spreadsheet.id, favorite: !spreadsheet.favorite });
+    await refreshData();
   };
 
   const updateNoteLocally = (updated: Note) => {
@@ -227,6 +256,11 @@ export function App() {
       ...current,
       notes: current.notes.map((note) => (note.id === updated.id ? updated : note)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
     }));
+  };
+
+  const removeFavorite = async (note: Note) => {
+    const updated = await window.mochi.updateNote({ id: note.id, favorite: false });
+    updateNoteLocally(updated);
   };
 
   const updateSettings = async (settings: Partial<AppSettings>) => {
@@ -329,7 +363,7 @@ export function App() {
         </div>
       </header>
 
-      <section className={`workspace ${data.settings.sidebarCollapsed ? "sidebar-collapsed" : ""} ${(view === "insights" || view === "spreadsheets" || view === "settings" || view === "tasks" || view === "notes") ? "insights-active" : ""}`}>
+      <section className={`workspace ${data.settings.sidebarCollapsed ? "sidebar-collapsed" : ""} ${(view === "insights" || view === "spreadsheets" || view === "settings" || view === "tasks" || view === "notes" || view === "favorites") ? "insights-active" : ""}`}>
         <Sidebar
           categories={data.categories}
           settings={data.settings}
@@ -344,12 +378,14 @@ export function App() {
         />
         {view === "insights" ? (
           <InsightsDashboard notes={data.notes} showMascot={data.settings.showMascot} onCreateNote={createNote} onCreateTask={createTask} onCreateSpreadsheet={() => createSpreadsheet("Nova planilha")} onOpenFavorites={() => pickView("favorites")} user={auth.user!} />
+        ) : view === "favorites" ? (
+          <FavoritesPage notes={data.notes} categories={data.categories} showMascot={data.settings.showMascot} onOpenNote={(id) => { setView("notes"); setSelectedId(id); }} onRemoveFavorite={removeFavorite} onExploreNotes={() => pickView("notes")} />
         ) : view === "tasks" ? (
           <TasksPage notes={data.notes} categories={data.categories} query={query} onQueryChange={setQuery} onCreate={createTaskFromPage} onUpdate={updateTaskFromPage} onToggle={toggleTaskFromPage} onDuplicate={duplicateTaskFromPage} onDelete={deleteTaskFromPage} />
         ) : view === "notes" ? (
           <NotesWorkspace notes={data.notes} categories={data.categories} folders={data.folders} tags={data.tags} settings={data.settings} selectedNote={selectedNote} query={query} creationError={noteCreationError} creatingNote={creatingNote} onQueryChange={setQuery} onSelect={setSelectedId} onCreateNote={createNote} onCreateFromTemplate={createNoteFromTemplate} onOpenTrash={() => pickView("trash")} onOpenArchived={() => pickView("archived")} onUpdateSettings={updateSettings} onUpdateNote={updateNoteLocally} onRefresh={refreshData} onDeleteNote={deleteSelectedNote} onOpenHistory={setHistoryNote} onTransformToTask={transformNoteToTask} onCreateFolder={createFolderFromNotes} onRenameFolder={renameFolderFromNotes} onDeleteFolder={deleteFolderFromNotes} onArchive={toggleArchiveNote} />
         ) : view === "spreadsheets" ? (
-          <SpreadsheetsPage spreadsheets={data.spreadsheets} onCreate={createSpreadsheet} onImport={importSpreadsheet} onOpen={async (id) => { await window.mochi.openSpreadsheet(id); }} />
+          <SpreadsheetLibraryPage spreadsheets={data.spreadsheets} onCreate={createSpreadsheet} onImport={importSpreadsheet} onImportPath={importSpreadsheetPath} onOpen={async (id) => { await window.mochi.openSpreadsheet(id); await refreshData(); }} onRename={renameSpreadsheet} onDuplicate={duplicateSpreadsheet} onDelete={deleteSpreadsheet} onToggleFavorite={toggleSpreadsheetFavorite} />
         ) : view === "settings" ? (
           <SettingsPage settings={data.settings} user={auth.user!} onUpdate={updateSettings} onProfileUpdate={setAuth} />
         ) : (

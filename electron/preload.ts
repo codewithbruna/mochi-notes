@@ -12,7 +12,8 @@ import type {
   UpdateChecklistInput,
   UpdateFolderInput,
   UpdateNoteInput,
-  UpdateTagInput
+  UpdateTagInput,
+  UpdateSpreadsheetInput
 } from "../src/types";
 
 contextBridge.exposeInMainWorld("mochi", {
@@ -27,7 +28,11 @@ contextBridge.exposeInMainWorld("mochi", {
   createQuickNote: () => ipcRenderer.invoke("notes:create-quick"),
   createSpreadsheet: (name: string) => ipcRenderer.invoke("spreadsheets:create", name),
   importSpreadsheet: () => ipcRenderer.invoke("spreadsheets:import"),
+  importSpreadsheetPath: (path: string) => ipcRenderer.invoke("spreadsheets:import-path", path),
   openSpreadsheet: (id: string) => ipcRenderer.invoke("spreadsheets:open", id),
+  updateSpreadsheet: (input: UpdateSpreadsheetInput) => ipcRenderer.invoke("spreadsheets:update", input),
+  duplicateSpreadsheet: (id: string) => ipcRenderer.invoke("spreadsheets:duplicate", id),
+  deleteSpreadsheet: (id: string) => ipcRenderer.invoke("spreadsheets:delete", id),
   updateNote: (input: UpdateNoteInput) => ipcRenderer.invoke("notes:update", input),
   deleteNote: (id: string) => ipcRenderer.invoke("notes:delete", id),
   restoreNote: (id: string) => ipcRenderer.invoke("notes:restore", id),

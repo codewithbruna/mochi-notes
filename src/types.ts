@@ -111,6 +111,14 @@ export interface SpreadsheetFile {
   path: string;
   type: "xlsx" | "csv";
   createdAt: string;
+  updatedAt: string;
+  favorite: boolean;
+}
+
+export interface UpdateSpreadsheetInput {
+  id: string;
+  name?: string;
+  favorite?: boolean;
 }
 
 export interface LocalUser {
@@ -207,7 +215,11 @@ export interface MochiApi {
   createQuickNote: () => Promise<Note>;
   createSpreadsheet: (name: string) => Promise<SpreadsheetFile>;
   importSpreadsheet: () => Promise<SpreadsheetFile | null>;
+  importSpreadsheetPath: (path: string) => Promise<SpreadsheetFile>;
   openSpreadsheet: (id: string) => Promise<{ ok: true }>;
+  updateSpreadsheet: (input: UpdateSpreadsheetInput) => Promise<SpreadsheetFile>;
+  duplicateSpreadsheet: (id: string) => Promise<SpreadsheetFile>;
+  deleteSpreadsheet: (id: string) => Promise<{ ok: true }>;
   updateNote: (input: UpdateNoteInput) => Promise<Note>;
   deleteNote: (id: string) => Promise<{ ok: true }>;
   restoreNote: (id: string) => Promise<Note>;
